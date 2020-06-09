@@ -6,6 +6,7 @@ Created on Mon Nov 11 15:43:49 2019
 @author: spencergordon
 """
 
+# This should work with Python 3.7.4 and igraph version 0.7.1
 import igraph
 from igraph import Graph as IGraph
 from collections import defaultdict
@@ -499,91 +500,91 @@ if __name__ == "__main__":
          W: B,
          B: X})
     gOut = ID(Y, X, G)
-    # G = Graph()
-    # G.add_vertices([X,Y])
-    # G.add_observed_edge(X,Y)
+    G = Graph()
+    G.add_vertices([X,Y])
+    G.add_observed_edge(X,Y)
 
-    # G2 = Graph()
+    G2 = Graph()
 
-    # G2.add_vertices([X,Y,W,Z])
-    # G2.add_observed_edges([
-    #     (W,X),
-    #     (W,Z),
-    #     (Z,Y),
-    #     (X,Z)
-    # ])
-    # G2.add_hidden_edges([(X,Y)])
-    # expr2 = ID(Y,X,G2)
+    G2.add_vertices([X,Y,W,Z])
+    G2.add_observed_edges([
+        (W,X),
+        (W,Z),
+        (Z,Y),
+        (X,Z)
+    ])
+    G2.add_hidden_edges([(X,Y)])
+    expr2 = ID(Y,X,G2)
 
-    # G3 = Graph()
-    # G3.add_vertices([X,Y,W,Z])
-    # G3.add_observed_edges([
-    #     (X,Y),
-    #     (Z,Y),
-    #     (W,X),
-    #     (Z,X)
-    # ])
-    # expr3 = ID(Y,X,G3)
+    G3 = Graph()
+    G3.add_vertices([X,Y,W,Z])
+    G3.add_observed_edges([
+        (X,Y),
+        (Z,Y),
+        (W,X),
+        (Z,X)
+    ])
+    expr3 = ID(Y,X,G3)
 
-    # G4 = Graph()
-    # G4.add_vertices([X,Y,W,Z])
-    # G4.add_observed_edges([
-    #     (X,Y),
-    #     (Z,Y),
-    #     (W,X),
-    #     (Z,X)
-    # ])
-    # G4.add_hidden_edges([(W,Y)])
-    # expr4 = ID(Y,X,G4)
+    G4 = Graph()
+    G4.add_vertices([X,Y,W,Z])
+    G4.add_observed_edges([
+        (X,Y),
+        (Z,Y),
+        (W,X),
+        (Z,X)
+    ])
+    G4.add_hidden_edges([(W,Y)])
+    expr4 = ID(Y,X,G4)
 
-    # G5 = Graph()
-    # G5.add_vertices([X,Y,W,Z,A])
-    # G5.add_observed_edges([
-    #     (X,A),
-    #     (A,Y),
-    #     (Z,Y),
-    #     (W,X),
-    #     (Z,X)
-    # ])
-    # G5.add_hidden_edges([(Z,W)])
-    # expr5 = ID(Y,X,G5)
+    G5 = Graph()
+    G5.add_vertices([X,Y,W,Z,A])
+    G5.add_observed_edges([
+        (X,A),
+        (A,Y),
+        (Z,Y),
+        (W,X),
+        (Z,X)
+    ])
+    G5.add_hidden_edges([(Z,W)])
+    expr5 = ID(Y,X,G5)
 
-    # G6 = Graph()
-    # G6.add_vertices([X1,Y1,X2,Y2])
-    # G6.add_observed_edges([
-    #     (X1,Y1),
-    #     (X2,Y2),
-    #     (Y1,X2)
-    # ])
-    # G6.add_observed_edges([(Y1,Y2)])
-    # expr6 = ID([Y1,Y2],[X1,X2], G6)
+    G6 = Graph()
+    G6.add_vertices([X1,Y1,X2,Y2])
+    G6.add_observed_edges([
+        (X1,Y1),
+        (X2,Y2),
+        (Y1,X2)
+    ])
+    G6.add_observed_edges([(Y1,Y2)])
+    expr6 = ID([Y1,Y2],[X1,X2], G6)
 
-    # G7 = Graph()
-    # G7.add_vertices([X1, X2, X3, Z1, Z2, W1, W2, Y])
-    # G7.add_observed_edges([
-    #     (X1, Z1),
-    #     (Z1, W1),
-    #     (W1, X2),
-    #     (X2, Z2),
-    #     (Z2, W2),
-    #     (W2, X3),
-    #     (Z1, Y),
-    #     (Z2, Y),
-    #     (X3, Y)
-    # ])
-    # G7.add_hidden_edges([
-    #     (Z1, X2),
-    #     (Z1, Z2),
-    #     (X1, W1),
-    #     (W1, W2),
-    #     (W1, Z2),
-    # ])
+    G7 = Graph()
+    G7.add_vertices([X1, X2, X3, Z1, Z2, W1, W2, Y])
+    G7.add_observed_edges([
+        (X1, Z1),
+        (Z1, W1),
+        (W1, X2),
+        (X2, Z2),
+        (Z2, W2),
+        (W2, X3),
+        (Z1, Y),
+        (Z2, Y),
+        (X3, Y)
+    ])
+    G7.add_hidden_edges([
+        (Z1, X2),
+        (Z1, Z2),
+        (X1, W1),
+        (W1, W2),
+        (W1, Z2),
+    ])
 
-    # expr7 = ID(Y, [X1, X2, X3], G7)
+    expr7 = ID(Y, [X1, X2, X3], G7)
 
-    # print(expr2)
-    # print(expr3)
-    # print(expr4)
-    # print(expr5)
-    # print(expr6)
-    # print(expr7)
+    print(expr2)
+    print(expr3)
+    print(expr4)
+    print(expr5)
+    print(expr6)
+    print(expr7)
