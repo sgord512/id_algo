@@ -9,9 +9,11 @@ Created on Mon Nov 11 15:43:49 2019
 import igraph
 from igraph import Graph as IGraph
 from collections import defaultdict
+import utilities
 
 class Graph(IGraph):
 
+    # These are all helper methods to make constructing graphs easier
     @staticmethod
     def _double_and_flip_list(edge_list):
         return [(v,u) if flip else (u,v) for (u,v) in edge_list for flip in range(2)]
@@ -27,6 +29,10 @@ class Graph(IGraph):
     def _edge_list_from_dict(ed):
         return Graph._edge_dict_to_list(Graph._values_to_lists_in_edge_dict(ed))
 
+    def get_num_nodes(self):
+        return len(self.vs)
+
+    # This is the main method used to easily construct a new graph
     @staticmethod
     def FromDicts(vertices, observed_edge_dict=None, hidden_edge_dict=None):
         observed_edges = Graph._edge_list_from_dict(observed_edge_dict) if observed_edge_dict else []
@@ -275,23 +281,15 @@ class DistributionExpression():
     def __repr__(self):
         return self.__str__()
 
+# Get connected components of a graph.
 def getComponents(G):
     components = G.components(mode=igraph.STRONG)
     return [set(G.vs[c]["name"]) for c in components]
 
-def flatten(alist):
-    new_list = []
-    for item in alist:
-        if isinstance(item, (list, tuple)):
-            new_list.extend(flatten(item))
-        else:
-            new_list.append(item)
-    return new_list
-
 def getAncestors(G, y):
     # This returns the ancestors of the vertices in the set y
-    n = len(G.obs.vs)
-    ancestorIndices = flatten(G.obs.neighborhood(y, order=n, mode=igraph.IN))
+    n = G.get_num_nodes()
+    ancestorIndices = utilities.flatten(G.obs.neighborhood(y, order=n, mode=igraph.IN))
     return set(G.obs.vs[ancestorIndices]["name"])
 
 def constructObservedAndConfounded(G):
@@ -330,7 +328,7 @@ def ID(y, x, G, P=None, topordering=None, depth=0, verbose=False):
         x = set(x)
         xindices = G.vs.select(name_in=x)
         v = set(G.vs["name"])
-        n = len(G.vs)
+        n = G.get_num_nodes()
         anc = getAncestors(G, y)
         if topordering == None:
             topordering = G.vs[G.obs.topological_sorting(mode=igraph.OUT)]["name"]
