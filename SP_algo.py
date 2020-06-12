@@ -60,9 +60,87 @@ class Graph(IGraph):
     def add_observed_edges(self, edge_list):
         self._add_edges_base(edge_list, observed=True)
 
+    def build_vertex_id_to_name_map(self):
+        names = dict()
+        for (i,v) in enumerate(self.vs):
+            names[i] = v["name"]
+        return names
+
+    def convert_edge_tuples_to_named_pairs(self, edges):
+        names = self.build_vertex_id_to_name_map()
+        return list(map(lambda tuple: (names[tuple[0]], names[tuple[1]]), edges))
+
+    def get_observed_edges(self):
+        if len(self.es) == 0: return []
+        obs_edges = list(map(lambda e: e.tuple, self.es.select(observed_eq=True)))
+        return self.convert_edge_tuples_to_named_pairs(obs_edges)
+
+    def get_hidden_edges(self):
+        if len(self.es) == 0: return []
+        hidden_edges = list(map(lambda e: e.tuple, self.es.select(observed_eq=False)))
+        return self.convert_edge_tuples_to_named_pairs(hidden_edges)
+
+    def construct_observed_subgraph(self):
+        names = self.build_vertex_id_to_name_map()
+        G = Graph()
+        G.add_vertices(list(names.values()))
+        G.add_observed_edges(self.get_observed_edges())
+        return G
+
+    def construct_confounded_subgraph(self):
+        names = self.build_vertex_id_to_name_map()
+        G = Graph()
+        G.add_vertices(list(names.values()))
+        hidden_edges = self.get_hidden_edges()
+        G.add_hidden_edges(utilities.unique_tuples(hidden_edges))
+        return G
+
+    def get_post_intervention_edges(self, v):
+        names = self.build_vertex_id_to_name_map()
+        hidden_edge_list = []
+        observed_edge_list = []
+        for edge in self.es:
+            source, target = edge.tuple
+            if (names[target] in v or
+                (names[source] in v and edge["observed"] == False)):
+                continue
+            if edge["observed"]:
+                observed_edge_list.append((source, target))
+            else:
+                hidden_edge_list.append((source, target))
+        return observed_edge_list, utilities.unique_tuples(hidden_edge_list)
+
+    def construct_post_intervention_subgraph(self, v):
+        names = self.build_vertex_id_to_name_map()
+        G = Graph()
+        observed_edge_list, hidden_edge_list = self.get_post_intervention_edges(v)
+        G.add_vertices(list(names.values()))
+        G.add_observed_edges(observed_edge_list)
+        G.add_hidden_edges(hidden_edge_list)
+        return G
+
     def add_hidden_edges(self, edge_list):
         full_edge_list = Graph._double_and_flip_list(edge_list)
         self._add_edges_base(full_edge_list, observed=False)
+
+    def induced_subgraph(self, v):
+        names = self.build_vertex_id_to_name_map()
+        hidden_edge_list = []
+        observed_edge_list = []
+        for edge in self.es:
+            source, target = edge.tuple
+            if (names[target] not in v or
+                (names[source] not in v)):
+                continue
+            if edge["observed"]:
+                observed_edge_list.append((names[source], names[target]))
+            else:
+                hidden_edge_list.append((names[source], names[target]))
+        G = Graph()
+        G.add_vertices(list(v))
+        G.add_observed_edges(observed_edge_list)
+        G.add_hidden_edges(utilities.unique_tuples(hidden_edge_list))
+        return G
 
     def __str__(self):
         return super().__str__()
@@ -294,8 +372,8 @@ def getAncestors(G, y):
     return set(G.obs.vs[ancestorIndices]["name"])
 
 def constructObservedAndConfounded(G):
-    G.obs = G.subgraph_edges(G.es.select(observed_eq=True), delete_vertices=False)
-    G.confounded = G.subgraph_edges(G.es.select(observed_eq=False), delete_vertices=False)
+    G.obs = G.construct_observed_subgraph()
+    G.confounded = G.construct_confounded_subgraph()
 
 def prettyPrint(formatObj, *args, depth=0, verbose):
     if not verbose:
@@ -367,8 +445,7 @@ def ID(y, x, G, P=None, topordering=None, depth=0, verbose=False):
             return output
 
         # LINE 3
-        xindices = G.vs.select(name_in=x)
-        G.postIntervention = G.subgraph_edges(G.es.select(_to_notin=xindices), delete_vertices=False)
+        G.postIntervention = G.construct_post_intervention_subgraph(x)
         constructObservedAndConfounded(G.postIntervention)
         ancestorsAvoidingX = getAncestors(G.postIntervention, y)
         w = v - x - ancestorsAvoidingX

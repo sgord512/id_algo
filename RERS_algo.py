@@ -2,6 +2,7 @@ import igraph
 from igraph import Graph as IGraph
 from collections import defaultdict
 from id_algo_implementation import Graph, flatten
+import copy
 import utilities
 
 class CADMG(Graph):
@@ -81,6 +82,10 @@ class CADMG(Graph):
             district = self.get_district(v)
             return len(descendants & district) == 1
 
+    def fix_vertex(self, v):
+        G = self.deepcopy()
+        #G.es.select()
+
     def __str__(self):
         return super().__str__()
 
@@ -125,6 +130,7 @@ class CADMGKernel():
     def fix_vertex(self, v):
         if not self.G.is_fixable(v):
             raise Exception("Chosen vertex isn't fixable.")
+        
 
 def IDAlgo(cadmgKernel, Y, A):
     Ystar = None
