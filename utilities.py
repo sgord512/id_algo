@@ -14,3 +14,7 @@ def unique_tuples(ls):
     for t in ls:
         s.add(frozenset(t))
     return [tuple(t) for t in s]
+
+# Takes iterable ls1 and list ls2 such that ls1 is a sublist of ls2 and returns a sorted version of ls1 according to the ordering in ls2
+def sort_subset_by_list(ls1, ls2):
+    return sorted(ls1, key=lambda x: ls2.index(x))
