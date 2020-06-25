@@ -7,185 +7,251 @@ Created on Mon Nov 11 15:43:49 2019
 """
 
 # This should work with Python 3.7.4 and igraph version 0.7.1
-from graph import Graphs
-from collections import defaultdict
-from distributions import DistributionExpression, UnidentifiableEffect
+from addict import Dict
+from graph import Graph
+from probability import Probability
 import utilities
+from utilities import prettyPrint
 
-def prettyPrint(formatObj, *args, depth=0, verbose):
-    if not verbose:
-        return
-    if len(args) == 0:
-        print(("\t" * depth) + str(formatObj))
-    else:
-        print(("\t" * depth) + formatObj.format(*args))
+class UnidentifiableEffect(Exception):
+    def __init__(self, x, y, G, S):
+        self.x = x
+        self.y = y
+        self.G = G
+        self.S = S
 
-def causalEffectStr(x, y):
-    return "P_{{{:}}}({:})".format(",".join(x), ",".join(y))
+    def __str__(self):
+        output = "UnidentifiableEffect: {:}. Hedge is\n\tF: {:}\n\tF': {:}".format(
+            utilities.causalEffectStr(self.x, self.y), self.G, self.S
+        )
+        return output
 
-def conditionalProbStr(y, x):
-    return "P({:}|{:})".format(",".join(y), ",".join(x))
+class Call(Dict):
+    def __init__(self, y = None, x = None, P = None, G = None, line = None):
+        super().__init__()
+        self.y = y
+        self.x = x
+        self.P = P
+        self.G = G
+        self.line = line
 
-# We'll use the name attribute of vertices to label vertices.
-# We'll indicate that an edge is unobserved by an attribute observed = False
-def ID(y, x, G, P=None, topordering=None, depth=0, verbose=False):
+class Tree():
+    def __init__(self):
+        self.call = Call()
+        self.root = None
+        self.branch = None
+
+class IDOutput():
+    def __init__(self, P, tree):
+        self.P = P
+        self.tree = tree
+
+def ID(y, x, G, verbose=False):
+    G._construct_observed_and_confounded()
+    P = Probability()
+    y = [y] if type(y) == str else y # If I just have a single vertex, I need to wrap it in a list.
+    x = [x] if type(x) == str else x
+    y = set(y)
+    x = set(x)
+    tree = Tree()
+    top_ord = G.get_topological_order()
+    prettyPrint("Topological order: {:}", top_ord, depth=0, verbose=verbose)
     try:
-        if P == None:
-            P = DistributionExpression.Atomic(
-                all_variables = G.vs["name"],
-                output_set=G.vs["name"],
-                trivial=True
-            )
-        y = [y] if type(y) == str else y # If I just have a single vertex, I need to wrap it in a list.
-        x = [x] if type(x) == str else x
-        prettyPrint("Computing " + causalEffectStr(x,y) + " from " + str(P), depth=depth, verbose=verbose)
-        constructObservedAndConfounded(G)
-        y = set(y)
-        x = set(x)
-        xindices = G.vs.select(name_in=x)
-        v = set(G.vs["name"])
+        output = ID_internal(y, x, G, Probability(), top_ord, tree=tree, depth=0, verbose=verbose)
+        output.P.query = {'Y': y, 'X': x}
+        return output.P
+    except UnidentifiableEffect as e:
+        return e
+
+def ID_internal(y, x, G, P, top_ord, tree, depth, verbose):
+    try:
+        #prettyPrint("Computing " + causalEffectStr(x,y) + " from " + str(P), depth=depth, verbose=verbose)
+
+        # The following variables will be useful throughout the algorithm
+        v = set(G.get_vertices())
         n = G.get_num_nodes()
-        anc = G.getAncestors(y)
-        if topordering == None:
-            topordering = G.vs[G.obs.topological_sorting(mode=igraph.OUT)]["name"]
-            prettyPrint("Topological ordering: {:}", topordering, depth=depth, verbose=verbose)
+        ancestors = set(G.get_ancestors(y))
 
-        # LINE 1
+        # Record the basic information about this call to the ID algorithm
+        if len(P.var) == 0 and not (P.is_product or P.is_fraction):
+            tree.call = Call(y, x, Probability(var=list(v)), G, line=None)
+        else:
+            tree.call = Call(y, x, P, G, line=None)
+
+        # The topological order we were given may contain variables that don't exist in the subgraph we're working with.
+        # We'll filter it to make sure it fits our subgraph.
+        # We'll still keep the original around to sort sets we deal with throughout.
+        new_top_ord = [v_i for v_i in top_ord[:] if v_i in v]
+
+        ########## LINE 1 ##########
         if len(set(x)) == 0:
-            finalP = DistributionExpression.Atomic(
-                all_variables=v,
-                output_set=y,
-                marginalized_set=v-y,
-                conditioning_set=None,
-                context=P)
-            prettyPrint("LINE 1", depth=depth, verbose=verbose)
-            prettyPrint(finalP, depth=depth, verbose=verbose)
-            #print()
-            return finalP
+            if P.is_product or P.is_fraction:
+                P_sumset = (v - y) | set(P.sumset)
+                P.sumset = utilities.sort_subset_by_list(P_sumset, top_ord)
+            else:
+                P.var = utilities.sort_subset_by_list(y, top_ord)
+            tree.call.line = 1
+            tree.root = P
+            return IDOutput(P, tree)
 
-        # LINE 2
-        nonanc = v - anc
+        ########## LINE 2 ##########
+        nonancestors = v - ancestors
         #prettyPrint("Nonancestors of {:}: {:}", y, nonanc, depth=depth, verbose=verbose)
-        if len(nonanc) > 0:
-            for vi in nonanc:
-                topordering.remove(vi)
-            prettyPrint("LINE 2: non-ancestors are {:}", nonanc, depth=depth, verbose=verbose)
-            newP = DistributionExpression.Atomic(
-                all_variables=anc,
-                output_set=anc,
-                marginalized_set=nonanc,
-                conditioning_set=None,
-                context=P)
-            output = ID(y,x & anc, G.induced_subgraph(anc), newP, topordering, depth=depth+1, verbose=verbose)
-            prettyPrint(output, depth=depth, verbose=verbose)
-            #print()
-            return output
+        if len(nonancestors) > 0:
+            #prettyPrint("LINE 2: non-ancestors are {:}", nonanc, depth=depth, verbose=verbose)
+            G_ancestors = G.induced_subgraph(ancestors)
+            if (P.is_product or P.is_fraction):
+                P_sumset = (v - ancestors) | set(P.sumset)
+                P.sumset = utilities.sort_subset_by_list(P_sumset, top_ord)
+            else:
+                P.var = utilities.sort_subset_by_list(ancestors, top_ord)
+            out = ID_internal(y, x & ancestors, G_ancestors, P, top_ord, tree=Tree(), depth=depth+1, verbose=verbose)
+            tree.branch = [out.tree]
+            tree.call.line = 2
+            tree.call.anc = ancestors
+            #prettyPrint(out.P, depth=depth, verbose=verbose)
+            return IDOutput(P=out.P, tree=tree)
 
-        # LINE 3
-        G.postIntervention = G.construct_post_intervention_subgraph(x)
-        G.postIntervention.constructObservedAndConfounded()
-        ancestorsAvoidingX = G.postIntervention.getAncestors(y)
-        w = v - x - ancestorsAvoidingX
+        ########## LINE 3 ##########
+        G.post_intervention = G.construct_post_intervention_subgraph(x)
+        ancestors_avoiding_x = G.post_intervention.get_ancestors(y)
+        w = (v - x) - ancestors_avoiding_x
         if len(w) > 0:
-            prettyPrint("LINE 3", depth=depth, verbose=verbose)
-            output = ID(y, x | w, G, P, depth=depth+1, verbose=verbose)
-            prettyPrint(output, depth=depth, verbose=verbose)
-            #print()
-            return output
+            #prettyPrint("LINE 3", depth=depth, verbose=verbose)
+            w_connected = w & G.post_intervention.get_all_connected_vertices(y)
 
-        # LINE 4
+            if len(w_connected) < len(w):
+                v_new = v - (w - w_connected)
+                G = G.induced_subgraph(v_new)
+
+            out = ID_internal(y, x | w_connected, G, P, top_ord, Tree(), depth=depth+1, verbose=verbose)
+            tree.branch = [out.tree]
+            tree.call.line = 3
+            tree.call.w = w
+            tree.call.anc_post_intervention = ancestors_avoiding_x
+            #prettyPrint(out.P, depth=depth, verbose=verbose)
+            return IDOutput(P=out.P, tree=tree)
+
         # I want to get all the C-components of G[V\X].
         G.withoutX = G.induced_subgraph(v - x)
-        components = G.confounded.induced_subgraph(v-x).getComponents()
-        numComponents = len(components)
-        if numComponents > 1:
-            prettyPrint("LINE 4", depth=depth, verbose=verbose)
-            marginalized_set = v - (y | x)
-            children = []
-            for si in components:
-                prettyPrint("Executing ID({:}, {:}, G, P)", si, v-si, depth=depth, verbose=verbose)
-                children.append(ID(si, v - si, G, P, topordering[:], depth=depth+1, verbose=verbose))
-            output = DistributionExpression.Recursive(
-                all_variables=v,
-                children=children,
-                marginalized_set=marginalized_set)
-            prettyPrint(output, depth=depth, verbose=verbose)
-            return output
+        components = G.withoutX.get_c_components()
+        num_components = len(components)
 
-        # LINE 5
+        ########### LINE 4 ##########
+        if num_components > 1:
+            tree.call.line = 4
+            #prettyPrint("LINE 4", depth=depth, verbose=verbose)
+            recursive_calls = []
+            for s_i in components:
+                #prettyPrint("Executing ID_internal({:}, {:}, G, P)", s_i, v-s_i, depth=depth, verbose=verbose)
+                recursive_calls.append(ID_internal(s_i, v - s_i, G, P, top_ord[:], Tree(), depth=depth+1, verbose=verbose))
+            tree.branch = [child.tree for child in recursive_calls]
+            sumset = v - (y | x)
+            P = Probability(
+                sumset=utilities.sort_subset_by_list(sumset, top_ord),
+                is_product=True,
+                children=[call.P for call in recursive_calls])
+            #prettyPrint(P, depth=depth, verbose=verbose)
+            return IDOutput(P=P, tree=tree)
+
+        ########### LINE 5 ##########
         # By the time we get here, we know that G[V\X] has a single C-component
         s = components[0]
         # prettyPrint("G[V\X] has only a single C-component: {{{:}}}".format(",".join(s)), depth=depth, verbose=verbose)
-        componentsG = getComponents(G.confounded)
+        components_G = G.get_c_components()
         # If G has only a single C-component, then the effect is unidentifiable.
-        if len(componentsG) == 1:
-            prettyPrint("LINE 5", depth=depth, verbose=verbose)
-            raise UnidentifiableEffect(x, y, componentsG[0], s)
+        if len(components_G) == 1:
+            #prettyPrint("LINE 5", depth=depth, verbose=verbose)
+            raise UnidentifiableEffect(x, y, components_G[0], s)
 
-        sprime = None
-        for si in componentsG:
-            if s <= si:
-                sprime = si
+        # Here we figure out which c-component of G is a superset of the c-component of G[V\X]
+        s_prime = None
+        for s_i in components_G:
+            if s <= s_i:
+                s_prime = s_i
                 break
 
-        # LINE 6
+        ########### LINE 6 ##########
         # This is the case where S is a C-component of G itself.
-        if len(s ^ sprime) == 0:
-            marginalized_set = s - y
-            children = []
-            for vi in s:
-                ix = topordering.index(vi)
-                predecessorsi = topordering[0:ix]
-                # prettyPrint(conditionalProbStr([vi], predecessorsi), depth=depth, verbose=verbose)
-                children.append(DistributionExpression.Atomic(
-                    all_variables=v,
-                    marginalized_set=v-set([vi])-set(predecessorsi),
-                    output_set=[vi],
-                    conditioning_set=predecessorsi,
-                    context=P)
-                )
-            prettyPrint("LINE 6", depth=depth, verbose=verbose)
-            output = DistributionExpression.Recursive(
-                all_variables=v,
-                children=children,
-                marginalized_set=marginalized_set)
-            prettyPrint(output, depth=depth, verbose=verbose)
-            #print()
-            return output
+        if len(s ^ s_prime) == 0:
+            #prettyPrint("LINE 6", depth=depth, verbose=verbose)
+            tree.call.line = 6
+            tree.call.s = s
+            product_list = [None for _ in range(len(s))]
+            P_prod = Probability()
+            s = utilities.sort_subset_by_list(s, top_ord)
+            for (i, v_i) in enumerate(s):
+                ix = new_top_ord.index(v_i)
+                cond_set = new_top_ord[0:ix]
+                if P.is_product:
+                    P_prod = P.parse_joint(set([v_i]), set(cond_set), v, top_ord)
+                else:
+                    P_prod = P.copy()
+                    P_prod.var = [v_i]
+                    P_prod.cond = cond_set
 
-        # LINE 7
+                product_list[len(s) - i - 1] = P_prod
+
+            if len(s) > 1:
+                P_new_sumset = set(s) - y
+                P_new = Probability(
+                    sumset=utilities.sort_subset_by_list(P_new_sumset, top_ord),
+                    is_product=True,
+                    children=product_list
+                )
+                tree.root = P_new
+                #prettyPrint(P_new, depth=depth, verbose=verbose)
+                return IDOutput(P=P_new, tree=tree)
+
+            if P_prod.is_product or P_prod.is_fraction:
+                P_prod_sumset = set(P_prod.sumset) | (set(s) - y)
+                P_prod.sumset = utilities.sort_subset_by_list(P_prod_sumset, top_ord)
+            else:
+                P_prod_var = set(P_prod.var) - (set(P_prod.sumset) | (set(s) - y))
+                P_prod.var = utilities.sort_subset_by_list(P_prod_var, top_ord)
+            tree.root = P_prod_var
+            #prettyPrint(P_prod, depth=depth, verbose=verbose)
+            return IDOutput(P=P_prod, tree=tree)
+
+        ########## LINE 7 ##########
         # This is the case where S is a subset of larger C-component S'
-        children = []
-        for vi in sprime:
-            ix = topordering.index(vi)
-            predecessorsi = topordering[0:ix]
-            children.append(DistributionExpression.Atomic(
-                all_variables=v,
-                output_set=[vi],
-                marginalized_set=v-set([vi])-set(predecessorsi),
-                conditioning_set=predecessorsi,
-                context=P)
-            )
-        G.sprime = G.induced_subgraph(sprime)
-        newP = DistributionExpression.Recursive(
-            all_variables=G.sprime.vs["name"],
-            children=children)
-        prettyPrint("LINE 7", depth=depth, verbose=verbose)
-        output = ID(y, x & sprime, G.sprime, newP, depth=depth+1, verbose=verbose)
-        prettyPrint(output, depth=depth, verbose=verbose)
-        #print()
-        return output
-    except UnidentifiableEffect as e:
-        if depth == 0:
-            return e
+        tree.call.s = s
+        tree.call.line = 7
+        # Note that we're going to set s <- s_prime to match the code from Tikka and Karvanen.
+        # I think it's confusing, but I'll try it this way first. 
+        s = utilities.sort_subset_by_list(s_prime, top_ord)
+        tree.call.s_prime = s
+
+        G.s = G.induced_subgraph(s)
+        product_list = [None for _ in range(len(s))]
+        for (i, v_i) in enumerate(s):
+            ix = new_top_ord.index(v_i)
+            cond_set = new_top_ord[0:ix]
+            P_prod = P.copy()
+            P_prod.var = [v_i]
+            P_prod.cond = cond_set
+            product_list[len(s) - i - 1] = P_prod
+
+        x_new = set(s) & x
+        out = None
+        if len(s) > 1:
+            P_recursive = Probability(is_product=True, children=product_list)
+            out = ID_internal(y, x_new, G.s, P_recursive, top_ord, Tree(), depth=depth+1, verbose=verbose)
         else:
-            raise e
+            out = ID_internal(y, x_new, G.s, product_list[0], top_ord, Tree(), depth=depth+1, verbose=verbose)
+
+        tree.branch = [out.tree]
+        #prettyPrint(out.P, depth=depth, verbose=verbose)
+        return IDOutput(P=out.P, tree=tree)
+
+    except UnidentifiableEffect as e:
+        raise e
 
 A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,W,X,Y,Z = "a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,w,x,y,z".split(',')
-X1,X2,X3,X4,X5 = "x_1,x_2,x_3,x_4,x_5".split(',')
-Y1,Y2,Y3,Y4,Y5 = "y_1,y_2,y_3,y_4,y_5".split(',')
-Z1,Z2,Z3,Z4,Z5 = "z_1,z_2,z_3,z_4,z_5".split(',')
-W1,W2,W3,W4,W5 = "w_1,w_2,w_3,w_4,w_5".split(',')
+X1,X2,X3,X4,X5 = "x1,x2,x3,x4,x5".split(',')
+Y1,Y2,Y3,Y4,Y5 = "y1,y2,y3,y4,y5".split(',')
+Z1,Z2,Z3,Z4,Z5 = "z1,z2,z3,z4,z5".split(',')
+W1,W2,W3,W4,W5 = "w1,w2,w3,w4,w5".split(',')
 
 if __name__ == "__main__":
     SingleEdge = Graph.FromDicts([X, Y], {X: Y}, {})
